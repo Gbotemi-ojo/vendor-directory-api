@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { vendorService } from '../services/vendor.service';
+import { vendorService } from '../services/vendor.service.js';
 
 export class VendorController {
   async list(req: Request, res: Response): Promise<void> {

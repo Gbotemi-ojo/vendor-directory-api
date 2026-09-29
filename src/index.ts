@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import vendorRoutes from './routes/vendor.routes';
+import vendorRoutes from './routes/vendor.routes.js';
 
 dotenv.config();
 
@@ -11,16 +11,13 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Mount the vendor routes
 app.use('/api/vendors', vendorRoutes);
 
-// Basic health check for your Vitest file
 app.get('/api/health', (_req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// Only start the server if we are not running tests
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`🚀 Server listening on http://localhost:${PORT}`);
   });

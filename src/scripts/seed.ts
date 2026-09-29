@@ -1,12 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import * as cheerio from 'cheerio';
-import { db } from '../db';
-import { vendors } from '../db/schema';
+import { db } from '../db/index.js';
+import { vendors } from '../db/schema.js';
 import crypto from 'crypto';
 
 async function seedFromHTML() {
-  // Point this to your saved HTML files
   const files = ['page1.html', 'page2.html'];
   let insertedCount = 0;
 
@@ -20,23 +19,21 @@ async function seedFromHTML() {
     const html = fs.readFileSync(filePath, 'utf-8');
     const $ = cheerio.load(html);
 
-    const extractedVendors: typeof vendors.$inferInsert[] = [];
+    const extractedVendors: (typeof vendors.$inferInsert)[] = [];
 
-    // Select all vendor cards based on the HTML you provided
     $('.group.relative').each((_, element) => {
       const nameNode = $(element).find('a.font-semibold').first();
       const name = nameNode.text().trim();
       const website = nameNode.attr('href') || null;
-      
+
       const description = $(element).find('p.text-muted-foreground').first().text().trim() || null;
 
-      // Filter out empty cards or navigation elements
       if (name && description) {
         extractedVendors.push({
           id: crypto.randomUUID(),
           name,
           website,
-          description
+          description,
         });
       }
     });
@@ -47,7 +44,7 @@ async function seedFromHTML() {
       console.log(`Inserted ${extractedVendors.length} vendors from ${file}`);
     }
   }
-  
+
   console.log(`\n✅ Seeding complete. Total vendors inserted: ${insertedCount}`);
   process.exit(0);
 }
