@@ -1,6 +1,3 @@
-Here’s the cleaned-up Markdown, with consistent formatting and code fences so you can copy it directly into your `README.md`:
-
-````markdown
 # AI Security Vendor Directory - Backend API
 
 A production-ready, full-stack backend service built for the **AI Security Vendor Directory** assignment.
