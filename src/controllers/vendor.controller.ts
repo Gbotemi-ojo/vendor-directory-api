@@ -70,21 +70,19 @@ export class VendorController {
     }
   }
 
-  async refresh(req: Request, res: Response): Promise<void> {
+async refresh(req: Request, res: Response): Promise<void> {
     try {
       const rawId = req.params.id;
       const id = typeof rawId === 'string' ? rawId : rawId?.[0];
-
       if (!id) {
         res.status(400).json({ error: 'Invalid vendor ID' });
         return;
       }
-
       const refreshedVendor = await vendorService.refreshVendor(id);
       res.status(200).json(refreshedVendor);
     } catch (error: any) {
       console.error('Error refreshing vendor:', error.message);
-      res.status(500).json({ error: 'Failed to refresh vendor data from source' });
+      res.status(500).json({ error: error.message || 'Failed to refresh vendor data' });
     }
   }
 }

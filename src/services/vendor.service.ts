@@ -2,6 +2,8 @@ import { db } from '../db/index.js';
 import { vendors } from '../db/schema.js';
 import { eq, like, or } from 'drizzle-orm';
 import * as cheerio from 'cheerio';
+import fs from 'fs';
+import path from 'path';
 
 export interface UpdateVendorInput {
   name?: string;
@@ -23,7 +25,6 @@ export class VendorService {
           )
         );
     }
-
     return await db.select().from(vendors);
   }
 
@@ -33,7 +34,6 @@ export class VendorService {
       .from(vendors)
       .where(eq(vendors.id, id))
       .limit(1);
-
     return records[0] ?? null;
   }
 
@@ -57,31 +57,49 @@ export class VendorService {
 
   async refreshVendor(id: string) {
     const vendor = await this.getVendorById(id);
+    
     if (!vendor || !vendor.website) {
       throw new Error('Vendor not found or missing source URL');
     }
 
-    const sourceUrl = vendor.website.startsWith('http')
-      ? vendor.website
-      : `https://cybersectools.com${vendor.website}`;
+    const files = ['page1.html', 'page2.html'];
+    let found = false;
+    let newName = vendor.name;
+    let newDescription = vendor.description;
 
-    const response = await fetch(sourceUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
+    // Search through local HTML files to find the matching vendor
+    for (const file of files) {
+      const filePath = path.join(process.cwd(), 'data', file);
+      
+      if (!fs.existsSync(filePath)) {
+        continue;
+      }
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch source: ${response.statusText}`);
+      const html = fs.readFileSync(filePath, 'utf-8');
+      const $ = cheerio.load(html);
+
+      // Find the anchor tag that matches the vendor's website
+      const linkElement = $(`a[href="${vendor.website}"]`);
+
+      if (linkElement.length > 0) {
+        // Find the parent container to extract the associated name and description
+        const parentGroup = linkElement.closest('.group.relative');
+        
+        if (parentGroup.length > 0) {
+          const extractedName = parentGroup.find('a.font-semibold').first().text().trim();
+          const extractedDesc = parentGroup.find('p.text-muted-foreground').first().text().trim();
+          
+          if (extractedName) newName = extractedName;
+          if (extractedDesc) newDescription = extractedDesc;
+          found = true;
+          break; // Stop searching once the vendor is found
+        }
+      }
     }
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
-
-    const newDescription = $('meta[name="description"]').attr('content') || vendor.description;
-    const fullTitle = $('title').text();
-    const splitTitle = fullTitle ? fullTitle.split('-')[0] : undefined;
-    const newName = splitTitle ? splitTitle.trim() : vendor.name;
+    if (!found) {
+      throw new Error('Vendor not found in local HTML data files.');
+    }
 
     await db
       .update(vendors)
