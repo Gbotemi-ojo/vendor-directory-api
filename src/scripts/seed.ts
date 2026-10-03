@@ -21,7 +21,6 @@ async function seedFromHTML() {
 
     const html = fs.readFileSync(filePath, 'utf-8');
     const $ = cheerio.load(html);
-
     const extractedVendors: (typeof vendors.$inferInsert)[] = [];
 
     $('.group.relative').each((_, element) => {
@@ -33,11 +32,8 @@ async function seedFromHTML() {
       let slug = null;
       let website = null;
       
-      // Determine if this is a "Featured" vendor or a standard directory vendor
-      if (rawHref.includes('?utm_source=')) {
-        website = rawHref.split('?')[0]; 
-        slug = el.attr('data-company-slug') || el.attr('data-tool-slug') || null;
-      } else if (rawHref.includes('/tools/')) {
+      // Only process standard directory vendors
+      if (rawHref.includes('/tools/')) {
         slug = rawHref.split('/tools/')[1]?.replace(/\/$/, '') || null;
         website = rawHref; // Save the profile link (e.g., /tools/whitefin)
       }

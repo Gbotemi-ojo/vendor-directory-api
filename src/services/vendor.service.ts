@@ -43,6 +43,7 @@ export class VendorService {
     if (!existing) {
       return null;
     }
+
     await db
       .update(vendors)
       .set({
@@ -52,10 +53,11 @@ export class VendorService {
         ...(data.description !== undefined && { description: data.description }),
       })
       .where(eq(vendors.id, id));
+
     return await this.getVendorById(id);
   }
 
-async refreshVendor(id: string) {
+  async refreshVendor(id: string) {
     const vendor = await this.getVendorById(id);
     
     if (!vendor) throw new Error('Vendor not found');
@@ -82,26 +84,13 @@ async refreshVendor(id: string) {
         let currentSlug = null;
         let currentWebsite = null;
         
-        // 1. Same logic as seed.ts to find the correct slug and website
-        if (rawHref.includes('?utm_source=')) {
-          currentWebsite = rawHref.split('?')[0];
-          currentSlug = el.attr('data-company-slug') || el.attr('data-tool-slug') || null;
-        } else if (rawHref.includes('/tools/')) {
+        // Only process standard directory vendors
+        if (rawHref.includes('/tools/')) {
           currentSlug = rawHref.split('/tools/')[1]?.replace(/\/$/, '') || null;
-          
-          // Grab the real external URL from the hidden Next.js payload
-          if (currentSlug) {
-            const toolRegex = new RegExp(`"slug":"${currentSlug}".*?"url":"([^"]+)"`);
-            const match = html.match(toolRegex);
-            if (match && match[1]) {
-              currentWebsite = match[1].replace(/\\u0026/g, '&');
-            } else {
-              currentWebsite = rawHref; // Fallback
-            }
-          }
+          currentWebsite = rawHref; // Save the profile link
         }
 
-        // 2. If we found the vendor we are trying to refresh
+        // If we found the vendor we are trying to refresh
         if (currentSlug === vendor.slug) {
           const extractedName = nameNode.text().trim();
           const extractedDesc = el.find('p.text-muted-foreground').first().text().trim();
