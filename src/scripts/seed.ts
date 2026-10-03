@@ -6,13 +6,16 @@ import { vendors } from '../db/schema.js';
 import crypto from 'crypto';
 
 async function seedFromHTML() {
+  await db.delete(vendors);
+  console.log('Cleared existing vendors from the database.');
+
   const files = ['page1.html', 'page2.html'];
   let insertedCount = 0;
+  const seenSlugs = new Set<string>();
 
   for (const file of files) {
     const filePath = path.join(process.cwd(), 'data', file);
     if (!fs.existsSync(filePath)) {
-      console.log(`Skipping ${file} - file not found in /data folder.`);
       continue;
     }
 
@@ -22,21 +25,32 @@ async function seedFromHTML() {
     const extractedVendors: (typeof vendors.$inferInsert)[] = [];
 
     $('.group.relative').each((_, element) => {
-      const nameNode = $(element).find('a.font-semibold').first();
+      const el = $(element);
+      const nameNode = el.find('a.font-semibold').first();
       const name = nameNode.text().trim();
+      const rawHref = nameNode.attr('href') || '';
       
-      // Extract the unique slug from the profile URL
-      const profileUrl = nameNode.attr('href') || '';
-      const slug = profileUrl.split('/tools/')[1]?.replace(/\/$/, '') || null;
+      let slug = null;
+      let website = null;
       
-      const description = $(element).find('p.text-muted-foreground').first().text().trim() || null;
+      // Determine if this is a "Featured" vendor or a standard directory vendor
+      if (rawHref.includes('?utm_source=')) {
+        website = rawHref.split('?')[0]; 
+        slug = el.attr('data-company-slug') || el.attr('data-tool-slug') || null;
+      } else if (rawHref.includes('/tools/')) {
+        slug = rawHref.split('/tools/')[1]?.replace(/\/$/, '') || null;
+        website = rawHref; // Save the profile link (e.g., /tools/whitefin)
+      }
 
-      if (name && description && slug) {
+      const description = el.find('p.text-muted-foreground').first().text().trim() || null;
+
+      if (name && description && slug && !seenSlugs.has(slug)) {
+        seenSlugs.add(slug);
         extractedVendors.push({
           id: crypto.randomUUID(),
           slug,
           name,
-          website: null, // Keep null so the refresh function fetches the real one[cite: 1, 3]
+          website,
           description,
         });
       }
@@ -49,7 +63,7 @@ async function seedFromHTML() {
     }
   }
 
-  console.log(`\n  Seeding complete. Total vendors inserted: ${insertedCount}`);
+  console.log(`\n🎉 Seeding complete. Total unique vendors inserted: ${insertedCount}`);
   process.exit(0);
 }
 
