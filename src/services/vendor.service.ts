@@ -55,19 +55,19 @@ export class VendorService {
     return await this.getVendorById(id);
   }
 
-  async refreshVendor(id: string) {
+async refreshVendor(id: string) {
     const vendor = await this.getVendorById(id);
     
-    if (!vendor || !vendor.website) {
-      throw new Error('Vendor not found or missing source URL');
+    if (!vendor) {
+      throw new Error('Vendor not found');
     }
 
     const files = ['page1.html', 'page2.html'];
     let found = false;
     let newName = vendor.name;
     let newDescription = vendor.description;
+    let newWebsite = vendor.website;
 
-    // Search through local HTML files to find the matching vendor
     for (const file of files) {
       const filePath = path.join(process.cwd(), 'data', file);
       
@@ -78,22 +78,29 @@ export class VendorService {
       const html = fs.readFileSync(filePath, 'utf-8');
       const $ = cheerio.load(html);
 
-      // Find the anchor tag that matches the vendor's website
-      const linkElement = $(`a[href="${vendor.website}"]`);
+      $('.group.relative').each((_, element) => {
+        const el = $(element);
+        const nameNode = el.find('a.font-semibold').first();
+        const extractedName = nameNode.text().trim();
+        const extractedWebsite = nameNode.attr('href') || null;
 
-      if (linkElement.length > 0) {
-        // Find the parent container to extract the associated name and description
-        const parentGroup = linkElement.closest('.group.relative');
-        
-        if (parentGroup.length > 0) {
-          const extractedName = parentGroup.find('a.font-semibold').first().text().trim();
-          const extractedDesc = parentGroup.find('p.text-muted-foreground').first().text().trim();
+        if (
+          (vendor.website && extractedWebsite === vendor.website) ||
+          (vendor.name && extractedName === vendor.name)
+        ) {
+          const extractedDesc = el.find('p.text-muted-foreground').first().text().trim();
           
           if (extractedName) newName = extractedName;
           if (extractedDesc) newDescription = extractedDesc;
+          if (extractedWebsite) newWebsite = extractedWebsite;
+          
           found = true;
-          break; // Stop searching once the vendor is found
+          return false;
         }
+      });
+
+      if (found) {
+        break;
       }
     }
 
@@ -106,6 +113,7 @@ export class VendorService {
       .set({
         name: newName,
         description: newDescription,
+        website: newWebsite,
       })
       .where(eq(vendors.id, id));
 

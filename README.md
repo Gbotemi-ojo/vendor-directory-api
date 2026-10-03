@@ -11,7 +11,7 @@ It provides a clean RESTful API with automated web scraping, relational database
 ### Prerequisites
 
 - Node.js (v18 or higher) installed locally.
-- Access to a MySQL instance or PlanetScale database.
+- Access to a MySQL instance.
 
 ### Setup Steps
 
@@ -41,8 +41,6 @@ DB_PASSWORD=your_password
 DB_DATABASE=vendor_directory
 DB_PORT=3306
 ```
-
-> **Note:** Never commit your `.env` file or database credentials to version control.
 
 #### 4. Run Migrations and Seed Initial Data
 
@@ -99,7 +97,7 @@ This enforces a clear separation of concerns and keeps business logic isolated f
 
 Drizzle provides a lightweight, type-safe SQL query builder without the heavier abstraction associated with traditional ORMs such as Prisma or TypeORM.
 
-It maps cleanly to relational databases such as MySQL and PlanetScale while keeping database queries explicit and type-safe.
+It maps cleanly to relational databases such as MySQL while keeping database queries explicit and type-safe.
 
 ### Cheerio
 
@@ -195,7 +193,7 @@ Vitest and Supertest are used to verify core API functionality, including:
 
 ### 2. Manual End-to-End Checks
 
-API responses were also tested manually using `curl` and integrated with the React frontend client.
+API responses were also tested manually using postman and integrated with the React frontend client.
 
 These checks were used to verify:
 
@@ -211,9 +209,9 @@ These checks were used to verify:
 
 ### Known Limitation
 
-The live refresh mechanism depends on the structure and markup of the target websites remaining relatively consistent.
+The live refresh mechanism depends on the structure and markup of the target websites remaining relatively consistent,This is not a particular problem in this assignment though because i have 
+downloaded the html pages locally.
 
-If a target website significantly changes its HTML structure, existing selectors or fallback strategies may no longer extract all vendor metadata correctly.
 
 ### Future Improvement
 
@@ -268,5 +266,4 @@ The implementation was validated through:
 
 All generated snippets were reviewed and validated against the application's actual runtime behavior before being incorporated into the project.
 
-```
 ```
