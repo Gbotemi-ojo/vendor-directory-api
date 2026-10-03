@@ -55,16 +55,11 @@ export class VendorService {
     return await this.getVendorById(id);
   }
 
-  async refreshVendor(id: string) {
+async refreshVendor(id: string) {
     const vendor = await this.getVendorById(id);
     
-    if (!vendor) {
-      throw new Error('Vendor not found');
-    }
-
-    if (!vendor.slug) {
-      throw new Error('Vendor is missing a slug identifier. Cannot refresh.');
-    }
+    if (!vendor) throw new Error('Vendor not found');
+    if (!vendor.slug) throw new Error('Vendor is missing a slug identifier. Cannot refresh.');
 
     const files = ['page1.html', 'page2.html'];
     let found = false;
@@ -72,55 +67,62 @@ export class VendorService {
     let newDescription = vendor.description;
     let newWebsite = vendor.website;
 
-    // Search through local HTML files to find the matching vendor by slug[cite: 1]
     for (const file of files) {
       const filePath = path.join(process.cwd(), 'data', file);
-      
-      if (!fs.existsSync(filePath)) {
-        continue;
-      }
+      if (!fs.existsSync(filePath)) continue;
 
       const html = fs.readFileSync(filePath, 'utf-8');
       const $ = cheerio.load(html);
 
-      // Match the anchor tag that ends with the vendor's immutable slug[cite: 1, 3]
-      const linkElement = $(`a[href$="/tools/${vendor.slug}"]`);
-
-      if (linkElement.length > 0) {
-        const parentGroup = linkElement.closest('.group.relative');
+      $('.group.relative').each((_, element) => {
+        const el = $(element);
+        const nameNode = el.find('a.font-semibold').first();
+        const rawHref = nameNode.attr('href') || '';
         
-        if (parentGroup.length > 0) {
-          const extractedName = parentGroup.find('a.font-semibold').first().text().trim();
-          const extractedDesc = parentGroup.find('p.text-muted-foreground').first().text().trim();
+        let currentSlug = null;
+        let currentWebsite = null;
+        
+        // 1. Same logic as seed.ts to find the correct slug and website
+        if (rawHref.includes('?utm_source=')) {
+          currentWebsite = rawHref.split('?')[0];
+          currentSlug = el.attr('data-company-slug') || el.attr('data-tool-slug') || null;
+        } else if (rawHref.includes('/tools/')) {
+          currentSlug = rawHref.split('/tools/')[1]?.replace(/\/$/, '') || null;
+          
+          // Grab the real external URL from the hidden Next.js payload
+          if (currentSlug) {
+            const toolRegex = new RegExp(`"slug":"${currentSlug}".*?"url":"([^"]+)"`);
+            const match = html.match(toolRegex);
+            if (match && match[1]) {
+              currentWebsite = match[1].replace(/\\u0026/g, '&');
+            } else {
+              currentWebsite = rawHref; // Fallback
+            }
+          }
+        }
+
+        // 2. If we found the vendor we are trying to refresh
+        if (currentSlug === vendor.slug) {
+          const extractedName = nameNode.text().trim();
+          const extractedDesc = el.find('p.text-muted-foreground').first().text().trim();
           
           if (extractedName) newName = extractedName;
           if (extractedDesc) newDescription = extractedDesc;
-          
-          // Extract the vendor's real website URL from the Next.js JSON payload in the HTML[cite: 3]
-          const toolRegex = new RegExp(`"slug":"${vendor.slug}".*?"url":"([^"]+)"`);
-          const match = html.match(toolRegex);
-          
-          if (match && match[1]) {
-            newWebsite = match[1];
-          }
+          if (currentWebsite) newWebsite = currentWebsite;
           
           found = true;
-          break; // Stop searching once the vendor is found
+          return false; // Break Cheerio loop
         }
-      }
+      });
+
+      if (found) break; // Stop searching other files once found
     }
 
-    if (!found) {
-      throw new Error('Vendor not found in local HTML data files using slug.');
-    }
+    if (!found) throw new Error('Vendor not found in local HTML data files using slug.');
 
     await db
       .update(vendors)
-      .set({
-        name: newName,
-        description: newDescription,
-        website: newWebsite,
-      })
+      .set({ name: newName, description: newDescription, website: newWebsite })
       .where(eq(vendors.id, id));
 
     return await this.getVendorById(id);
