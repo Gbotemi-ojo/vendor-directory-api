@@ -24,15 +24,19 @@ async function seedFromHTML() {
     $('.group.relative').each((_, element) => {
       const nameNode = $(element).find('a.font-semibold').first();
       const name = nameNode.text().trim();
-      const website = nameNode.attr('href') || null;
-
+      
+      // Extract the unique slug from the profile URL
+      const profileUrl = nameNode.attr('href') || '';
+      const slug = profileUrl.split('/tools/')[1]?.replace(/\/$/, '') || null;
+      
       const description = $(element).find('p.text-muted-foreground').first().text().trim() || null;
 
-      if (name && description) {
+      if (name && description && slug) {
         extractedVendors.push({
           id: crypto.randomUUID(),
+          slug,
           name,
-          website,
+          website: null, // Keep null so the refresh function fetches the real one[cite: 1, 3]
           description,
         });
       }
@@ -45,7 +49,7 @@ async function seedFromHTML() {
     }
   }
 
-  console.log(`\n✅ Seeding complete. Total vendors inserted: ${insertedCount}`);
+  console.log(`\n  Seeding complete. Total vendors inserted: ${insertedCount}`);
   process.exit(0);
 }
 

@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 
 export interface UpdateVendorInput {
+  slug?: string | null;
   name?: string;
   website?: string | null;
   description?: string | null;
@@ -42,24 +43,27 @@ export class VendorService {
     if (!existing) {
       return null;
     }
-
     await db
       .update(vendors)
       .set({
+        ...(data.slug !== undefined && { slug: data.slug }),
         ...(data.name !== undefined && { name: data.name }),
         ...(data.website !== undefined && { website: data.website }),
         ...(data.description !== undefined && { description: data.description }),
       })
       .where(eq(vendors.id, id));
-
     return await this.getVendorById(id);
   }
 
-async refreshVendor(id: string) {
+  async refreshVendor(id: string) {
     const vendor = await this.getVendorById(id);
     
     if (!vendor) {
       throw new Error('Vendor not found');
+    }
+
+    if (!vendor.slug) {
+      throw new Error('Vendor is missing a slug identifier. Cannot refresh.');
     }
 
     const files = ['page1.html', 'page2.html'];
@@ -68,6 +72,7 @@ async refreshVendor(id: string) {
     let newDescription = vendor.description;
     let newWebsite = vendor.website;
 
+    // Search through local HTML files to find the matching vendor by slug[cite: 1]
     for (const file of files) {
       const filePath = path.join(process.cwd(), 'data', file);
       
@@ -78,34 +83,35 @@ async refreshVendor(id: string) {
       const html = fs.readFileSync(filePath, 'utf-8');
       const $ = cheerio.load(html);
 
-      $('.group.relative').each((_, element) => {
-        const el = $(element);
-        const nameNode = el.find('a.font-semibold').first();
-        const extractedName = nameNode.text().trim();
-        const extractedWebsite = nameNode.attr('href') || null;
+      // Match the anchor tag that ends with the vendor's immutable slug[cite: 1, 3]
+      const linkElement = $(`a[href$="/tools/${vendor.slug}"]`);
 
-        if (
-          (vendor.website && extractedWebsite === vendor.website) ||
-          (vendor.name && extractedName === vendor.name)
-        ) {
-          const extractedDesc = el.find('p.text-muted-foreground').first().text().trim();
+      if (linkElement.length > 0) {
+        const parentGroup = linkElement.closest('.group.relative');
+        
+        if (parentGroup.length > 0) {
+          const extractedName = parentGroup.find('a.font-semibold').first().text().trim();
+          const extractedDesc = parentGroup.find('p.text-muted-foreground').first().text().trim();
           
           if (extractedName) newName = extractedName;
           if (extractedDesc) newDescription = extractedDesc;
-          if (extractedWebsite) newWebsite = extractedWebsite;
+          
+          // Extract the vendor's real website URL from the Next.js JSON payload in the HTML[cite: 3]
+          const toolRegex = new RegExp(`"slug":"${vendor.slug}".*?"url":"([^"]+)"`);
+          const match = html.match(toolRegex);
+          
+          if (match && match[1]) {
+            newWebsite = match[1];
+          }
           
           found = true;
-          return false;
+          break; // Stop searching once the vendor is found
         }
-      });
-
-      if (found) {
-        break;
       }
     }
 
     if (!found) {
-      throw new Error('Vendor not found in local HTML data files.');
+      throw new Error('Vendor not found in local HTML data files using slug.');
     }
 
     await db

@@ -6,7 +6,6 @@ export class VendorController {
     try {
       const rawSearch = req.query.search;
       const search = typeof rawSearch === 'string' ? rawSearch : undefined;
-
       const data = await vendorService.getAllVendors(search);
       res.status(200).json(data);
     } catch (error) {
@@ -19,19 +18,19 @@ export class VendorController {
     try {
       const rawId = req.params.id;
       const id = typeof rawId === 'string' ? rawId : rawId?.[0];
-
+      
       if (!id) {
         res.status(400).json({ error: 'Invalid vendor ID' });
         return;
       }
-
+      
       const vendor = await vendorService.getVendorById(id);
-
+      
       if (!vendor) {
         res.status(404).json({ error: 'Vendor not found' });
         return;
       }
-
+      
       res.status(200).json(vendor);
     } catch (error) {
       console.error('Error fetching vendor:', error);
@@ -43,26 +42,26 @@ export class VendorController {
     try {
       const rawId = req.params.id;
       const id = typeof rawId === 'string' ? rawId : rawId?.[0];
-
+      
       if (!id) {
         res.status(400).json({ error: 'Invalid vendor ID' });
         return;
       }
-
-      const { name, website, description } = req.body;
-
-      if (!name && website === undefined && description === undefined) {
+      
+      const { slug, name, website, description } = req.body;
+      
+      if (slug === undefined && !name && website === undefined && description === undefined) {
         res.status(400).json({ error: 'At least one field is required to update' });
         return;
       }
-
-      const updated = await vendorService.updateVendor(id, { name, website, description });
-
+      
+      const updated = await vendorService.updateVendor(id, { slug, name, website, description });
+      
       if (!updated) {
         res.status(404).json({ error: 'Vendor not found' });
         return;
       }
-
+      
       res.status(200).json(updated);
     } catch (error) {
       console.error('Error updating vendor:', error);
@@ -70,14 +69,16 @@ export class VendorController {
     }
   }
 
-async refresh(req: Request, res: Response): Promise<void> {
+  async refresh(req: Request, res: Response): Promise<void> {
     try {
       const rawId = req.params.id;
       const id = typeof rawId === 'string' ? rawId : rawId?.[0];
+      
       if (!id) {
         res.status(400).json({ error: 'Invalid vendor ID' });
         return;
       }
+      
       const refreshedVendor = await vendorService.refreshVendor(id);
       res.status(200).json(refreshedVendor);
     } catch (error: any) {
