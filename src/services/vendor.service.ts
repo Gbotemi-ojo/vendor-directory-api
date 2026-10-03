@@ -84,7 +84,6 @@ export class VendorService {
         let currentSlug = null;
         let currentWebsite = null;
         
-        // Only process standard directory vendors
         if (rawHref.includes('/tools/')) {
           currentSlug = rawHref.split('/tools/')[1]?.replace(/\/$/, '') || null;
           currentWebsite = rawHref; // Save the profile link
@@ -100,7 +99,7 @@ export class VendorService {
           if (currentWebsite) newWebsite = currentWebsite;
           
           found = true;
-          return false; // Break Cheerio loop
+          return false;
         }
       });
 
