@@ -25,12 +25,15 @@
   },
   "homepage": "https://github.com/Gbotemi-ojo/vendor-directory-api#readme",
   "dependencies": {
-    "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.4",
     "drizzle-orm": "^0.45.3",
     "express": "^5.2.1",
-    "mysql2": "^3.24.4"
+    "mysql2": "^3.24.4",
+    "puppeteer": "^25.13.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

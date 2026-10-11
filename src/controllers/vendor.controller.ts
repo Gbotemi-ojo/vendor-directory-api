@@ -1,14 +1,23 @@
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import { vendorService } from '../services/vendor.service.js';
+import {
+  UpdateVendorBodySchema,
+  VendorIdParamSchema,
+  VendorListQuerySchema,
+} from '../schemas/vendor.schema.js';
 
 export class VendorController {
   async list(req: Request, res: Response): Promise<void> {
     try {
-      const rawSearch = req.query.search;
-      const search = typeof rawSearch === 'string' ? rawSearch : undefined;
+      const { search } = VendorListQuerySchema.parse(req.query);
       const data = await vendorService.getAllVendors(search);
       res.status(200).json(data);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: 'Invalid input data', details: error.issues });
+        return;
+      }
       console.error('Error fetching vendors:', error);
       res.status(500).json({ error: 'Failed to retrieve vendors' });
     }
@@ -16,23 +25,20 @@ export class VendorController {
 
   async getById(req: Request, res: Response): Promise<void> {
     try {
-      const rawId = req.params.id;
-      const id = typeof rawId === 'string' ? rawId : rawId?.[0];
-      
-      if (!id) {
-        res.status(400).json({ error: 'Invalid vendor ID' });
-        return;
-      }
-      
+      const { id } = VendorIdParamSchema.parse(req.params);
       const vendor = await vendorService.getVendorById(id);
-      
+
       if (!vendor) {
         res.status(404).json({ error: 'Vendor not found' });
         return;
       }
-      
+
       res.status(200).json(vendor);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: 'Invalid input data', details: error.issues });
+        return;
+      }
       console.error('Error fetching vendor:', error);
       res.status(500).json({ error: 'Failed to retrieve vendor' });
     }
@@ -40,30 +46,21 @@ export class VendorController {
 
   async update(req: Request, res: Response): Promise<void> {
     try {
-      const rawId = req.params.id;
-      const id = typeof rawId === 'string' ? rawId : rawId?.[0];
-      
-      if (!id) {
-        res.status(400).json({ error: 'Invalid vendor ID' });
-        return;
-      }
-      
-      const { slug, name, website, description } = req.body;
-      
-      if (slug === undefined && !name && website === undefined && description === undefined) {
-        res.status(400).json({ error: 'At least one field is required to update' });
-        return;
-      }
-      
-      const updated = await vendorService.updateVendor(id, { slug, name, website, description });
-      
+      const { id } = VendorIdParamSchema.parse(req.params);
+      const update = UpdateVendorBodySchema.parse(req.body);
+      const updated = await vendorService.updateVendor(id, update);
+
       if (!updated) {
         res.status(404).json({ error: 'Vendor not found' });
         return;
       }
-      
+
       res.status(200).json(updated);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: 'Invalid input data', details: error.issues });
+        return;
+      }
       console.error('Error updating vendor:', error);
       res.status(500).json({ error: 'Failed to update vendor' });
     }
@@ -71,19 +68,18 @@ export class VendorController {
 
   async refresh(req: Request, res: Response): Promise<void> {
     try {
-      const rawId = req.params.id;
-      const id = typeof rawId === 'string' ? rawId : rawId?.[0];
-      
-      if (!id) {
-        res.status(400).json({ error: 'Invalid vendor ID' });
-        return;
-      }
-      
+      const { id } = VendorIdParamSchema.parse(req.params);
       const refreshedVendor = await vendorService.refreshVendor(id);
       res.status(200).json(refreshedVendor);
-    } catch (error: any) {
-      console.error('Error refreshing vendor:', error.message);
-      res.status(500).json({ error: error.message || 'Failed to refresh vendor data' });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: 'Invalid input data', details: error.issues });
+        return;
+      }
+      console.error('Error refreshing vendor:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to refresh vendor data',
+      });
     }
   }
 }

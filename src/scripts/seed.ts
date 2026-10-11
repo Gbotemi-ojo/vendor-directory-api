@@ -1,66 +1,270 @@
-import fs from 'fs';
-import path from 'path';
-import * as cheerio from 'cheerio';
+import crypto from 'node:crypto';
+import { addExtra } from 'puppeteer-extra';
+import vanillaPuppeteer, { type Page } from 'puppeteer';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+
 import { db } from '../db/index.js';
 import { vendors } from '../db/schema.js';
-import crypto from 'crypto';
 
-async function seedFromHTML() {
-  await db.delete(vendors);
-  console.log('Cleared existing vendors from the database.');
+const puppeteer = addExtra(vanillaPuppeteer);
+puppeteer.use(StealthPlugin());
 
-  const files = ['page1.html', 'page2.html'];
-  let insertedCount = 0;
-  const seenSlugs = new Set<string>();
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  for (const file of files) {
-    const filePath = path.join(process.cwd(), 'data', file);
-    if (!fs.existsSync(filePath)) {
-      continue;
+const LIST_PAGES = [1, 2] as const;
+const MAX_NAVIGATION_ATTEMPTS = 3;
+const LIST_PAGE_DELAY_MS = 1_500;
+const PROFILE_PAGE_DELAY_MS = 1_200;
+
+interface VendorListing {
+  name: string;
+  slug: string;
+  description: string | null;
+}
+
+async function navigateWithRetry(
+  page: Page,
+  url: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_NAVIGATION_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30_000,
+      });
+
+      if (!response) {
+        throw new Error(`Navigation returned no response for ${url}`);
+      }
+
+      if (response.status() === 429 || response.status() >= 500) {
+        if (attempt === MAX_NAVIGATION_ATTEMPTS) {
+          throw new Error(`HTTP ${response.status()} after ${attempt} attempts for ${url}`);
+        }
+        console.warn(
+          `HTTP ${response.status()} for ${url}; retrying in ${attempt * 5} seconds.`,
+        );
+        await delay(attempt * 5_000);
+        continue;
+      }
+
+      if (!response.ok()) {
+        throw new Error(`HTTP ${response.status()} while loading ${url}`);
+      }
+
+      return;
+    } catch (error) {
+      if (attempt === MAX_NAVIGATION_ATTEMPTS) {
+        throw error;
+      }
+      console.warn(
+        `Navigation attempt ${attempt} failed for ${url}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      await delay(attempt * 1_000);
+    }
+  }
+}
+
+async function getVendorListings(
+  page: Page,
+  pageNumber: (typeof LIST_PAGES)[number],
+  seenSlugs: Set<string>,
+): Promise<VendorListing[]> {
+  const url = `https://cybersectools.com/categories/ai-security?page=${pageNumber}`;
+  await navigateWithRetry(page, url);
+
+  await page.waitForSelector('main a.font-semibold[href^="/tools/"]', {
+    timeout: 15_000,
+  });
+
+  const script = String.raw`(() => {
+    const grids = Array.from(document.querySelectorAll('main div.grid'));
+    const grid = grids.find((candidate) =>
+      candidate.querySelector('a.font-semibold[href^="/tools/"]')
+    );
+
+    if (!grid) {
+      throw new Error('Could not find the main vendor grid.');
     }
 
-    const html = fs.readFileSync(filePath, 'utf-8');
-    const $ = cheerio.load(html);
-    const extractedVendors: (typeof vendors.$inferInsert)[] = [];
+    return Array.from(grid.querySelectorAll('div.rounded-lg.text-card-foreground'))
+      .map((card) => {
+        const nameLink = card.querySelector('a.font-semibold[href^="/tools/"]');
+        if (!nameLink) return null;
 
-    $('.group.relative').each((_, element) => {
-      const el = $(element);
-      const nameNode = el.find('a.font-semibold').first();
-      const name = nameNode.text().trim();
-      const rawHref = nameNode.attr('href') || '';
-      
-      let slug = null;
-      let website = null;
-      
-      // Only process standard directory vendors
-      if (rawHref.includes('/tools/')) {
-        slug = rawHref.split('/tools/')[1]?.replace(/\/$/, '') || null;
-        website = rawHref; // Save the profile link (e.g., /tools/whitefin)
-      }
+        let ancestor = card;
+        while (ancestor) {
+          if (ancestor.getAttribute('data-location') && ancestor.getAttribute('data-location').toLowerCase() === 'featured') {
+            return null;
+          }
+          if (ancestor === grid) break;
+          ancestor = ancestor.parentElement;
+        }
 
-      const description = el.find('p.text-muted-foreground').first().text().trim() || null;
+        const markedFeatured = Array.from(card.querySelectorAll('[data-location]')).some(
+          (element) => element.getAttribute('data-location') && element.getAttribute('data-location').toLowerCase() === 'featured',
+        );
 
-      if (name && description && slug && !seenSlugs.has(slug)) {
-        seenSlugs.add(slug);
-        extractedVendors.push({
-          id: crypto.randomUUID(),
-          slug,
+        const hasFeaturedBadge = Array.from(card.querySelectorAll('span, [role="status"], [class*="badge" i]')).some(
+          (element) => (element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'featured',
+        );
+
+        if (markedFeatured || hasFeaturedBadge) return null;
+
+        const name = (nameLink.textContent || '').replace(/\s+/g, ' ').trim();
+        const profileUrl = new URL(nameLink.getAttribute('href') || '', window.location.origin);
+        const slugMatch = profileUrl.pathname.match(/^\/tools\/([^/]+)\/?$/);
+
+        if (!name || !slugMatch) return null;
+
+        const description = (card.querySelector('p.line-clamp-2')?.textContent || '').replace(/\s+/g, ' ').trim() || null;
+
+        return {
           name,
-          website,
+          slug: decodeURIComponent(slugMatch[1]),
           description,
-        });
-      }
-    });
+        };
+      })
+      .filter(Boolean);
+  })()`;
 
-    if (extractedVendors.length > 0) {
-      await db.insert(vendors).values(extractedVendors);
-      insertedCount += extractedVendors.length;
-      console.log(`Inserted ${extractedVendors.length} vendors from ${file}`);
+  const listings = (await page.evaluate(script)) as VendorListing[];
+
+  const uniqueListings: VendorListing[] = [];
+  for (const vendor of listings) {
+    if (seenSlugs.has(vendor.slug)) continue;
+    seenSlugs.add(vendor.slug);
+    uniqueListings.push(vendor);
+  }
+
+  if (uniqueListings.length === 0) {
+    throw new Error(`No standard vendor listings found on page ${pageNumber}.`);
+  }
+
+  return uniqueListings;
+}
+
+async function getExternalWebsite(
+  page: Page,
+  slug: string,
+): Promise<string | null> {
+  const profileUrl = `https://cybersectools.com/tools/${encodeURIComponent(slug)}`;
+  await navigateWithRetry(page, profileUrl);
+  await page.waitForSelector('main dl dt', { timeout: 15_000 });
+
+  const script = String.raw`(() => {
+    function isExternalHttpLink(anchor) {
+      try {
+        const url = new URL(anchor.href);
+        if (
+          (url.protocol === 'http:' || url.protocol === 'https:') &&
+          url.hostname !== 'cybersectools.com' &&
+          !url.hostname.endsWith('.cybersectools.com')
+        ) {
+          return url.href;
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    }
+
+    const visitLink = Array.from(document.querySelectorAll('a[href]')).find(
+      (anchor) => (anchor.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'visit website',
+    );
+
+    if (visitLink) {
+      const href = isExternalHttpLink(visitLink);
+      if (href) return href;
+    }
+
+    const websiteTerm = Array.from(document.querySelectorAll('dt')).find(
+      (term) => (term.textContent || '').trim().toLowerCase() === 'website',
+    );
+    const factsLink = websiteTerm && websiteTerm.nextElementSibling ? websiteTerm.nextElementSibling.querySelector('a[href]') : null;
+
+    return factsLink ? isExternalHttpLink(factsLink) : null;
+  })()`;
+
+  const website = (await page.evaluate(script)) as string | null;
+
+  if (!website) return null;
+
+  const sanitizedUrl = new URL(website);
+  const trackingParameters = new Set([
+    'dclid', 'fbclid', 'gclid', 'igshid', 'mc_cid', 'mc_eid',
+    'msclkid', 'oly_anon_id', 'oly_enc_id', 'rb_clickid',
+    's_cid', 'vero_conv', 'vero_id', 'wickedid',
+  ]);
+
+  for (const key of Array.from(sanitizedUrl.searchParams.keys())) {
+    if (key.toLowerCase().startsWith('utm_') || trackingParameters.has(key.toLowerCase())) {
+      sanitizedUrl.searchParams.delete(key);
     }
   }
 
-  console.log(`\n🎉 Seeding complete. Total unique vendors inserted: ${insertedCount}`);
-  process.exit(0);
+  return sanitizedUrl.toString();
 }
 
-seedFromHTML().catch(console.error);
+async function seedLive(): Promise<void> {
+  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
+
+  try {
+    console.log('Clearing existing vendors from the database...');
+    await db.delete(vendors);
+    console.log('Database cleared.');
+
+    const seenSlugs = new Set<string>();
+
+    console.log('Launching stealth browser to scrape AI Security vendors...');
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--disable-setuid-sandbox', '--no-sandbox'],
+    });
+
+    const page = await browser.newPage();
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+
+    const listings: VendorListing[] = [];
+    for (const pageNumber of LIST_PAGES) {
+      const pageListings = await getVendorListings(page, pageNumber, seenSlugs);
+      listings.push(...pageListings);
+      console.log(`Collected ${pageListings.length} vendors from page ${pageNumber}.`);
+      await delay(LIST_PAGE_DELAY_MS);
+    }
+
+    console.log(`Found ${listings.length} unique standard vendors. Extracting profile URLs...`);
+
+    const records: (typeof vendors.$inferInsert)[] = [];
+    for (const [index, vendor] of listings.entries()) {
+      const website = await getExternalWebsite(page, vendor.slug);
+      
+      records.push({
+        id: crypto.randomUUID(),
+        slug: vendor.slug,
+        name: vendor.name,
+        website,
+        description: vendor.description,
+      });
+      
+      console.log(`Fetched profile ${index + 1}/${listings.length}: ${vendor.name}.`);
+      await delay(PROFILE_PAGE_DELAY_MS);
+    }
+
+    if (records.length > 0) {
+      await db.insert(vendors).values(records);
+    }
+    console.log(`Seeding complete. Inserted ${records.length} new vendors.`);
+
+  } finally {
+    if (browser) await browser.close();
+    await db.$client.end();
+  }
+}
+
+seedLive().catch((error: unknown) => {
+  console.error('Vendor seeding failed:', error);
+  process.exitCode = 1;
+});

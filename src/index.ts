@@ -19,7 +19,7 @@ app.get('/api/health', (_req, res) => {
 
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`🚀 Server listening on http://localhost:${PORT}`);
+    console.log(`Server listening on http://localhost:${PORT}`);
   });
 }
 
