@@ -10,9 +10,9 @@ import {
 export class VendorController {
   async list(req: Request, res: Response): Promise<void> {
     try {
-      const { search } = VendorListQuerySchema.parse(req.query);
-      const data = await vendorService.getAllVendors(search);
-      res.status(200).json(data);
+      const { search, page, limit } = VendorListQuerySchema.parse(req.query);
+      const result = await vendorService.getAllVendors(search, page, limit);
+      res.status(200).json(result);
     } catch (error) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ error: 'Invalid input data', details: error.issues });
@@ -69,8 +69,11 @@ export class VendorController {
   async refresh(req: Request, res: Response): Promise<void> {
     try {
       const { id } = VendorIdParamSchema.parse(req.params);
-      const refreshedVendor = await vendorService.refreshVendor(id);
-      res.status(200).json(refreshedVendor);
+      const { jobId } = await vendorService.refreshVendor(id);
+      res.status(202).json({
+        message: 'Vendor refresh job queued',
+        jobId,
+      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ error: 'Invalid input data', details: error.issues });

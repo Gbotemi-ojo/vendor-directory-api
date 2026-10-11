@@ -11,7 +11,9 @@
     "db:push": "drizzle-kit push",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed": "npx tsx src/scripts/seed.ts"
+    "seed": "npx tsx src/scripts/seed.ts",
+    "worker": "node dist/worker.js",
+    "worker:dev": "tsx watch src/worker.ts"
   },
   "repository": {
     "type": "git",
@@ -25,14 +27,18 @@
   },
   "homepage": "https://github.com/Gbotemi-ojo/vendor-directory-api#readme",
   "dependencies": {
+    "bullmq": "^6.3.12",
     "cors": "^2.8.6",
     "dotenv": "^18.0.4",
     "drizzle-orm": "^0.45.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.1",
+    "ioredis": "^6.0.0",
     "mysql2": "^3.24.4",
     "puppeteer": "^25.13.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "rate-limit-redis": "^6.0.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
