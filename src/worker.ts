@@ -19,44 +19,6 @@ const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 const puppeteer = addExtra(vanillaPuppeteer);
 puppeteer.use(StealthPlugin());
 
-const extractionScript = String.raw`(() => {
-  const nameNode = document.querySelector('h1');
-  const name = nameNode ? nameNode.textContent.trim() : null;
-  const descNode = nameNode?.parentElement?.querySelector('p');
-  const description = descNode ? descNode.textContent.trim() : null;
-
-  function isExternalHttpLink(anchor) {
-    try {
-      const url = new URL(anchor.href);
-      if (
-        (url.protocol === 'http:' || url.protocol === 'https:') &&
-        url.hostname !== 'cybersectools.com' &&
-        !url.hostname.endsWith('.cybersectools.com')
-      ) {
-        return url.href;
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  }
-
-  const visitLink = Array.from(document.querySelectorAll('a[href]')).find(
-    (anchor) => anchor.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === 'visit website',
-  );
-
-  let website = visitLink ? isExternalHttpLink(visitLink) : null;
-  if (!website) {
-    const websiteTerm = Array.from(document.querySelectorAll('dt')).find(
-      (term) => term.textContent.trim().toLowerCase() === 'website',
-    );
-    const factsLink = websiteTerm?.nextElementSibling?.querySelector('a[href]');
-    website = factsLink ? isExternalHttpLink(factsLink) : null;
-  }
-
-  return { name, description, website };
-})()`;
-
 function sanitizeWebsite(website: string | null): string | null {
   if (!website) return null;
 
@@ -123,7 +85,41 @@ async function refreshVendor(job: Job<RefreshVendorJob>): Promise<void> {
     }
 
     await page.waitForSelector('main dl dt', { timeout: 15_000 });
-    const scrapedData = LiveVendorDataSchema.parse(await page.evaluate(extractionScript));
+    const scrapedData = LiveVendorDataSchema.parse(
+      await page.evaluate(() => {
+        const nameNode = document.querySelector('h1');
+        const name = nameNode ? nameNode.textContent?.trim() ?? null : null;
+        const descNode = nameNode?.parentElement?.querySelector('p');
+        const description = descNode ? descNode.textContent?.trim() ?? null : null;
+
+        const visitLink = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]')).find(
+          (anchor) =>
+            anchor.textContent?.replace(/\s+/g, ' ').trim().toLowerCase() === 'visit website',
+        );
+        const websiteTerm = Array.from(document.querySelectorAll('dt')).find(
+          (term) => term.textContent?.trim().toLowerCase() === 'website',
+        );
+        const factsLink =
+          websiteTerm?.nextElementSibling?.querySelector<HTMLAnchorElement>('a[href]');
+        const websiteCandidates = [visitLink, factsLink].filter(
+          (anchor): anchor is HTMLAnchorElement => anchor !== undefined && anchor !== null,
+        );
+        const website = websiteCandidates.find((anchor) => {
+          try {
+            const url = new URL(anchor.href);
+            return (
+              (url.protocol === 'http:' || url.protocol === 'https:') &&
+              url.hostname !== 'cybersectools.com' &&
+              !url.hostname.endsWith('.cybersectools.com')
+            );
+          } catch {
+            return false;
+          }
+        })?.href ?? null;
+
+        return { name, description, website };
+      }),
+    );
     if (!scrapedData.name && !scrapedData.website) {
       throw new Error('Vendor data was not found on the live profile.');
     }

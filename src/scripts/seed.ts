@@ -79,10 +79,10 @@ async function getVendorListings(
     timeout: 15_000,
   });
 
-  const script = String.raw`(() => {
+  const listings = (await page.evaluate(() => {
     const grids = Array.from(document.querySelectorAll('main div.grid'));
     const grid = grids.find((candidate) =>
-      candidate.querySelector('a.font-semibold[href^="/tools/"]')
+      candidate.querySelector('a.font-semibold[href^="/tools/"]'),
     );
 
     if (!grid) {
@@ -91,12 +91,14 @@ async function getVendorListings(
 
     return Array.from(grid.querySelectorAll('div.rounded-lg.text-card-foreground'))
       .map((card) => {
-        const nameLink = card.querySelector('a.font-semibold[href^="/tools/"]');
+        const nameLink = card.querySelector<HTMLAnchorElement>(
+          'a.font-semibold[href^="/tools/"]',
+        );
         if (!nameLink) return null;
 
-        let ancestor = card;
+        let ancestor: Element | null = card;
         while (ancestor) {
-          if (ancestor.getAttribute('data-location') && ancestor.getAttribute('data-location').toLowerCase() === 'featured') {
+          if (ancestor.getAttribute('data-location')?.toLowerCase() === 'featured') {
             return null;
           }
           if (ancestor === grid) break;
@@ -104,22 +106,26 @@ async function getVendorListings(
         }
 
         const markedFeatured = Array.from(card.querySelectorAll('[data-location]')).some(
-          (element) => element.getAttribute('data-location') && element.getAttribute('data-location').toLowerCase() === 'featured',
+          (element) => element.getAttribute('data-location')?.toLowerCase() === 'featured',
         );
-
-        const hasFeaturedBadge = Array.from(card.querySelectorAll('span, [role="status"], [class*="badge" i]')).some(
-          (element) => (element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'featured',
+        const hasFeaturedBadge = Array.from(
+          card.querySelectorAll('span, [role="status"], [class*="badge" i]'),
+        ).some(
+          (element) =>
+            element.textContent?.replace(/\s+/g, ' ').trim().toLowerCase() === 'featured',
         );
-
         if (markedFeatured || hasFeaturedBadge) return null;
 
-        const name = (nameLink.textContent || '').replace(/\s+/g, ' ').trim();
-        const profileUrl = new URL(nameLink.getAttribute('href') || '', window.location.origin);
+        const name = nameLink.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        const profileUrl = new URL(nameLink.getAttribute('href') ?? '', window.location.origin);
         const slugMatch = profileUrl.pathname.match(/^\/tools\/([^/]+)\/?$/);
-
         if (!name || !slugMatch) return null;
 
-        const description = (card.querySelector('p.line-clamp-2')?.textContent || '').replace(/\s+/g, ' ').trim() || null;
+        const description =
+          card
+            .querySelector('p.line-clamp-2')
+            ?.textContent?.replace(/\s+/g, ' ')
+            .trim() || null;
 
         return {
           name,
@@ -127,10 +133,8 @@ async function getVendorListings(
           description,
         };
       })
-      .filter(Boolean);
-  })()`;
-
-  const listings = (await page.evaluate(script)) as VendorListing[];
+      .filter((vendor): vendor is VendorListing => vendor !== null);
+  })) as VendorListing[];
 
   const uniqueListings: VendorListing[] = [];
   for (const vendor of listings) {
@@ -154,41 +158,33 @@ async function getExternalWebsite(
   await navigateWithRetry(page, profileUrl);
   await page.waitForSelector('main dl dt', { timeout: 15_000 });
 
-  const script = String.raw`(() => {
-    function isExternalHttpLink(anchor) {
+  const website = await page.evaluate(() => {
+    const visitLink = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]')).find(
+      (anchor) =>
+        anchor.textContent?.replace(/\s+/g, ' ').trim().toLowerCase() === 'visit website',
+    );
+    const websiteTerm = Array.from(document.querySelectorAll('dt')).find(
+      (term) => term.textContent?.trim().toLowerCase() === 'website',
+    );
+    const factsLink =
+      websiteTerm?.nextElementSibling?.querySelector<HTMLAnchorElement>('a[href]');
+    const websiteCandidates = [visitLink, factsLink].filter(
+      (anchor): anchor is HTMLAnchorElement => anchor !== undefined && anchor !== null,
+    );
+
+    return websiteCandidates.find((anchor) => {
       try {
         const url = new URL(anchor.href);
-        if (
+        return (
           (url.protocol === 'http:' || url.protocol === 'https:') &&
           url.hostname !== 'cybersectools.com' &&
           !url.hostname.endsWith('.cybersectools.com')
-        ) {
-          return url.href;
-        }
+        );
       } catch {
-        return null;
+        return false;
       }
-      return null;
-    }
-
-    const visitLink = Array.from(document.querySelectorAll('a[href]')).find(
-      (anchor) => (anchor.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'visit website',
-    );
-
-    if (visitLink) {
-      const href = isExternalHttpLink(visitLink);
-      if (href) return href;
-    }
-
-    const websiteTerm = Array.from(document.querySelectorAll('dt')).find(
-      (term) => (term.textContent || '').trim().toLowerCase() === 'website',
-    );
-    const factsLink = websiteTerm && websiteTerm.nextElementSibling ? websiteTerm.nextElementSibling.querySelector('a[href]') : null;
-
-    return factsLink ? isExternalHttpLink(factsLink) : null;
-  })()`;
-
-  const website = (await page.evaluate(script)) as string | null;
+    })?.href ?? null;
+  });
 
   if (!website) return null;
 
